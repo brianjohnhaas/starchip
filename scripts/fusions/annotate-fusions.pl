@@ -21,6 +21,9 @@ while (<CONFIG>) {
     $Configs{$var} = $value;
 }
 
+use Data::Dumper;
+print STDERR Dumper(\%Configs);
+
 my $numbcolumns=14; #need this one in case you junciton.out file/input changes.  this should be a non-existant final column (ie Chimeric.junciton.out has 0-13 columns)
 #should fix this to be more robust...
 
@@ -56,6 +59,11 @@ $data_dir =~ s/scripts\/fusions//;
 my $troublemakers = $data_dir .  $Configs{falsepositives} ;
 my $familyfile = $data_dir . $Configs{familyfile} ;
 my $cnvfile = $data_dir . $Configs{cnvs} ;
+
+print STDERR "Files to find:\n"
+    . "troublemakers: $troublemakers\n"
+    . "familyfile: $familyfile\n"
+    . "cnvfile: $cnvfile\n";
 
 unless (-e $troublemakers ) { #if the file isn't in starchip/
 	#print "$troublemakers\n"; 
@@ -146,10 +154,12 @@ while (my $x = <JUNCTION>) {
 }
 close (JUNCTION) ;
 
+print STDERR "-done reading junctions\n";
+
 ##Post filter gene-annotation here:
 #Run an External Script to Attach Gene Information to my Fusions (using bedtools intersect)
 my $annotate_command = $annotateloc . " " . $outsummtemp . " " . $Configs{refbed} . " " . $Configs{repeatbed}; 
-#print "running $annotate_command\n"; 
+print STDERR "running $annotate_command\n"; 
 system($annotate_command); 
 #print "now annotated\n"; 
 #should create a file $outsumtemp.annotated with gene annotations.
