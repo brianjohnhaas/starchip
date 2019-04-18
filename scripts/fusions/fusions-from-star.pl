@@ -4,6 +4,12 @@ use strict;
 use Cwd 'abs_path';
 use Getopt::Long;
 use File::Basename;
+use FindBin;
+use lib("$FindBin::Bin/../../perllib");
+use Process_cmd;
+
+set_debug_level(1);
+
 ## usage: fusions-from-star.pl  outputname Chimeric.out.junction  
 
 ##IMPORTANT NOTE!  this calls 'samtools' and 'bedtools' and 'mafft'  please have these installed and in your path under those aliases.  
@@ -21,7 +27,7 @@ if (scalar(@ARGV) != 3 ) { die "Wrong number of inputs. Usage: fusions-from-star
 ##Read in User Parameters (taken from Perl Cookbook "8.16. Reading Configuration Files")
 my %Configs = ();
 my $configfile = $ARGV[2]; 
-open CONFIG, "<$configfile" or die $!;
+open CONFIG, "<$configfile" or die "Error, cannot read config file: $configfile";
 while (<CONFIG>) {
     chomp;                  # no newline
     s/#.*//;                # no comments
@@ -30,6 +36,12 @@ while (<CONFIG>) {
     next unless length;     # anything left?
     my ($var, $value) = split(/\s*=\s*/, $_, 2);
     $Configs{$var} = $value;
+}
+
+if (get_log_level() > 0) {
+    use Data::Dumper;
+    print "fusions-from-star.pl, config setting:\n";
+    print Dumper(\%Configs);
 }
 
 #These shouldn't change unless the format of Chimeric.out.junction from star changes:
@@ -67,6 +79,22 @@ my $abpartsfile = $data_dir . "/" . $Configs{abparts} ;
 my $troublemakers = $data_dir . "/" . $Configs{falsepositives} ;
 my $familyfile = $data_dir . "/" . $Configs{familyfile} ;
 my $cnvfile = $data_dir . "/" . $Configs{cnvs} ; 
+
+
+if (get_log_level() > 0) {
+    print "fusions-from-star.pl settings:\n"
+        . "script_dir = $script_dir\n"
+        . "consensusloc = $consensusloc\n"
+        . "annotateloc = $annotateloc\n"
+        . "blastscript = $blastscript\n"
+        . "smithwaterman = $smithwaterman\n"
+        . "datadir = $data_dir\n"
+        . "abpartsfile = $abpartsfile\n"
+        . "troublemakers = $troublemakers\n"
+        . "familyfile = $familyfile\n"
+        . "cnvfile = $cnvfile\n\n";
+}
+
 
 unless (-e $abpartsfile ) { #if the file isn't in starchip/
 	$abpartsfile = $Configs{abparts} ; #check the absolute path
@@ -107,11 +135,9 @@ my $starbase = $junction ;
 $starbase =~ s/Chimeric.out.junction//;    
 
 
-
-
-
 #index the antibody regions for this genome:
-open ABS, "<$abpartsfile" or die $!;
+print STDERR "-processing abpartsfile: $abpartsfile\n";
+open ABS, "<$abpartsfile" or die "Error, cannot read $abpartsfile";
 my @AbParts;
 my $abindex=0; 
 while (my $x = <ABS>) {
@@ -373,6 +399,12 @@ for my $key (keys %fusions) {#go through all 'fusions'
 print "Total fusions passing read thresholds found: $fusioncounter\nThese fusions will now be filtered based on annotations\n";
 close (SUMMTEMP);
 
+print "-fusions-from-star.pl complete.\n";
+
+
+exit(0);
+
+
 
 
 ### BEGIN SUBROUTINES ###
@@ -568,6 +600,9 @@ sub supportCigar { #input: SJ line
                 }
         } 
 }
+
+
+
 sub reversestrand {
 	if ($_[0] eq "+"){
 		return "-";

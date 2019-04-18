@@ -4,6 +4,12 @@ use strict;
 use Cwd 'abs_path';
 use Getopt::Long;
 use File::Basename;
+use FindBin;
+use lib("$FindBin::Bin/perllib");
+use Process_cmd;
+
+set_debug_level(1);
+
 ## usage: fusions-from-star.pl  outputname Chimeric.out.junction  
 
 ##IMPORTANT NOTE!  this calls 'samtools' and 'bedtools' (>= v.2.24) and 'mafft'  please have these installed and in your path under those aliases.  
@@ -38,22 +44,45 @@ my $outsumm = $outbase . ".summary";
 my $outsummtemp = $outsumm . ".temp";
 my $outannotemp = $outsummtemp . ".annotated" ;
 my $outanno = $outsumm . ".annotated";
+
+if (get_debug_level() > 0) {
+    print "starchip-fusions.pl:\n"
+        . "outbase = $outbase\n"
+        . "outsumm = $outsumm\n"
+        . "outsummtemp = $outsummtemp\n"
+        . "outannotemp = $outannotemp\n"
+        . "outanno = $outannot\n\n";
+}
+
+    
 print "your final outputs will be in $outsumm and $outsumm.annotated\n";
 
 #RUN FUSIONS FROM STAR
-	#needs most values.  
-	my $fusions_from_star_cmd = $script_dir . "fusions-from-star.pl" . " $ARGV[0] " . $ARGV[1] . " " . $ARGV[2] ; 
-	print "$fusions_from_star_cmd\n";
-	system("$fusions_from_star_cmd"); 
+#needs most values.  
+my $fusions_from_star_cmd = $script_dir . "fusions-from-star.pl" . " $ARGV[0] " . $ARGV[1] . " " . $ARGV[2] ; 
+print "$fusions_from_star_cmd\n";
+process_cmd("$fusions_from_star_cmd");
+if ($ret) {
+    die "Error, cmd: $fusions_from_star_cmd died with ret $ret";
+}
 #RUN ANNOTATE-FUSIONS
-	#check that there are more than just the header line
-	open (OUTSUMTEMP, "<$outsummtemp") or die "$! cannot open $outsummtemp\n"; 
-	while (<OUTSUMTEMP>) {}; #stores # of lines in $. 
-	if ($. > 0) {
-		my $annotate_fusions_cmd = $script_dir . "annotate-fusions.pl" . " $ARGV[0] " . $ARGV[1] . " " . $ARGV[2] ;
-		print "$annotate_fusions_cmd\n"; 
-		system("$annotate_fusions_cmd"); 	
-	}
+#check that there are more than just the header line
+open (OUTSUMTEMP, "<$outsummtemp") or die "$! cannot open $outsummtemp\n"; 
+while (<OUTSUMTEMP>) {}; #stores # of lines in $. 
+if ($. > 0) {
+    my $annotate_fusions_cmd = $script_dir . "annotate-fusions.pl" . " $ARGV[0] " . $ARGV[1] . " " . $ARGV[2] ;
+    print "$annotate_fusions_cmd\n"; 
+    process_cmd("$annotate_fusions_cmd"); 	
+}
+else {
+    print "sorry, no fusions detected.\n";
+}
+
 #cleanup
-	my $cleanupcmd = "rm -f $outsummtemp $outannotemp";
-	system($cleanupcmd); 
+my $cleanupcmd = "rm -f $outsummtemp $outannotemp";
+if (get_debug_level() == 0) {
+    process_cmd($cleanupcmd); 
+}
+
+exit(0);
+

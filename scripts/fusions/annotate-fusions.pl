@@ -4,13 +4,20 @@ use strict;
 use Cwd 'abs_path';
 use Getopt::Long;
 use File::Basename;
+use FindBin;
+use lib "$FindBin::Bin/../../perllib");
+use Process_cmd;
+use Carp;
+
 ## usage: fusions-from-star.pl  outputname Chimeric.out.junction  
+
+set_debug_level(1);
 
 if (scalar(@ARGV) != 3 ) { die "Wrong number of inputs. Usage: fusions-from-star.pl output_seed input_chimeric.out.junction params.txt \n Be sure you have samtools, bedtools, and mafft available.\n";}
 
 ##Read in User Parameters (taken from Perl Cookbook "8.16. Reading Configuration Files")
 my %Configs = ();
-open CONFIG, "<$ARGV[2]" or die $!;
+open CONFIG, "<$ARGV[2]" or die "Error, cannot open file: $ARGV[2]";
 while (<CONFIG>) {
     chomp;                  # no newline
     s/#.*//;                # no comments
@@ -21,8 +28,11 @@ while (<CONFIG>) {
     $Configs{$var} = $value;
 }
 
-use Data::Dumper;
-print STDERR Dumper(\%Configs);
+if (get_log_level() > 0) {
+    print "annotate-fusions.pl config settings:\n";
+    use Data::Dumper;
+    print Dumper(\%Configs);
+}
 
 my $numbcolumns=14; #need this one in case you junciton.out file/input changes.  this should be a non-existant final column (ie Chimeric.junciton.out has 0-13 columns)
 #should fix this to be more robust...
@@ -60,10 +70,12 @@ my $troublemakers = $data_dir .  $Configs{falsepositives} ;
 my $familyfile = $data_dir . $Configs{familyfile} ;
 my $cnvfile = $data_dir . $Configs{cnvs} ;
 
-print STDERR "Files to find:\n"
-    . "troublemakers: $troublemakers\n"
-    . "familyfile: $familyfile\n"
-    . "cnvfile: $cnvfile\n";
+if (get_log_level() > 0) {
+    print "annotate-fusions.pl, files used:\n"
+        . "troublemakers: $troublemakers\n"
+        . "familyfile: $familyfile\n"
+        . "cnvfile: $cnvfile\n";
+}
 
 unless (-e $troublemakers ) { #if the file isn't in starchip/
 	#print "$troublemakers\n"; 
@@ -115,7 +127,7 @@ else { print "Known pseudogenes/paralogs/False-Positives file $troublemakers not
 my @cnvlocs;
 my $cnvindex = 0;
 if (-e $cnvfile) {
-	open CNVS, "<$cnvfile" or die $!; 
+	open CNVS, "<$cnvfile" or die "Error opening $cnvfile, $!"; 
 	while (my $x = <CNVS>) {
 		$x =~ s/^chr// ; #strip out 'chr' if it exists (makes comparisons more robust) 
 		my @line = split(/\s+/, $x);
@@ -128,7 +140,7 @@ if (-e $cnvfile) {
 else { print "Copy number variants file $cnvfile not found.  Will Continue without it\n"; }
 
 #Get read length
-open JUNCTION, "<$junction" or die $!;
+open JUNCTION, "<$junction" or die "error opening $junction, $!";
 while (my $x = <JUNCTION>) {
 	my @line = split(/\s+/, $x);
 	my $cigarA=$line[$col_cigarA];
@@ -154,18 +166,18 @@ while (my $x = <JUNCTION>) {
 }
 close (JUNCTION) ;
 
-print STDERR "-done reading junctions\n";
+print STDERR "annotate-fusions: -done reading junctions\n";
 
 ##Post filter gene-annotation here:
 #Run an External Script to Attach Gene Information to my Fusions (using bedtools intersect)
 my $annotate_command = $annotateloc . " " . $outsummtemp . " " . $Configs{refbed} . " " . $Configs{repeatbed}; 
 print STDERR "running $annotate_command\n"; 
-system($annotate_command); 
+process_cmd($annotate_command); 
 #print "now annotated\n"; 
 #should create a file $outsumtemp.annotated with gene annotations.
 
 #remove same gene fusions, simplify output
-open ANNOTEMP, "<$outannotemp" or die $!;
+open ANNOTEMP, "<$outannotemp" or die "Error opening $outannotemp";
 while (<ANNOTEMP>) {}
 my $annotemplines = $. ;
 open SUMM, ">$outsumm" or die $!;
@@ -178,108 +190,109 @@ if ($annotemplines == 1) {
 my $maxAS= $readlength/2;
 my $minAS= 15; #this 15 is a changeable star parameter (--chimSegmentMin 15) 
 my $avgAStarget= ($maxAS+$minAS)/2;  #a great fusion would have this average overhang.  (~32 for 100bp reads)
-open ANNOTEMP, "<$outannotemp" or die $!;
+open ANNOTEMP, "<$outannotemp" or die "Error opening $outannotemp $!";
 my $messageCounter = 0 ; 
-EXIT_ANNO_FILTER: while (my $x = <ANNOTEMP>) {
-	chomp $x; 
-        my @line = split(/\s+/, $x);
-	my $cols = scalar(@line);
-        my @geneannot = grep(/gene_id/, @line);
-	#indices stores the positions of gene_id in .annotated.  # repeats is 1 less (than indices[0], #alignments score is 3 less.  For perl indexes, these become -2 and -4.
-	my @indices=grep{ $line[$_] =~ /gene_id/ } 0..$#line ; 
-	if (@geneannot) {
-		my @anno1=split(/;/, $geneannot[0]);
-       		my @anno2=split(/;/, $geneannot[1]);
-		my @gene1name=grep(/gene_name/, @anno1);
-		if (@gene1name) { } #see if we found a gene_name field, if not use gene_id
-		else { 
-			if ($messageCounter < 1 ) {
-				print "gene_name field not found, will use gene_id\n" ;
-				$messageCounter++; 
-			}
-			@gene1name=grep(/gene_id/, @anno1);
-			#print "$gene1name[0]\n";
-		}
-        	my @gene2name=grep(/gene_name/, @anno2);
-		if (@gene2name) { }
-		else {
-                        if ($messageCounter < 1	) {
-				print "gene_name field not found, will use gene_id\n";
-				$messageCounter++; 
-			}
-			@gene2name=grep(/gene_id/, @anno2);
-			#print "$gene2name[0]\n"; 
-		}	
-		#skip same-gene 'fusions'
-		if ($gene1name[0] eq $gene2name[0]) {
-			print "Skipping same-gene 'fusion' within $gene1name[0]\n"; 
-        	    	next;  
-		}
-		#skip CNVs and circular-looking
-		my ($chrom1, $position1, $strand1 ) = split ':', $line[0] ; $chrom1 =~ s/:.*//;  
-		my ($chrom2, $position2, $strand2 ) = split ':', $line[1] ; $chrom2 =~ s/:.*//;  
-		if ($chrom1 eq $chrom2) { #same chrom
-			if ($strand1 eq $strand2) { #same strand
-				#remove circular looking RNA.  If not, widen the fusion positions for the CNV hunt.
-				if ($strand1 eq "-") { 
-					if (($position2 - $position1) < $Configs{circlesize} && ($position2 - $position1) >0) { #ie a back splice
-						print "skipping circle $line[0] $line[1]\n";
-						next EXIT_ANNO_FILTER ;
-					}#if not circular, adjust 
-					my $temp = $position1 - $Configs{cnvwiggle} ; $position1 = $position2 + $Configs{cnvwiggle} ; $position2 = $temp;
-				}
-				else   { ## ie plus strand
-					if (($position1 - $position2) < $Configs{circlesize} && ($position1 - $position2) > 0) {
-						print "skipping circle $line[0] $line[1]\n";
-						next EXIT_ANNO_FILTER ;
-					} #if not circular, adjust 
-					$position1 = $position1 + $Configs{cnvwiggle}; $position2 = $position2 - $Configs{cnvwiggle};
-				}
-				#check the positions for CNV status
-				$chrom1 =~ s/^chr// ; ##CNVs chr values are stripped on read-in.  
-				foreach my $z (0..$cnvindex) { 
-	                 		no warnings 'uninitialized' ;# if positions 1 and 2 are within the CNV. 
-		                	if ($cnvlocs[$z][0]{$chrom1} <= $position1 && $position1 <= $cnvlocs[$z][1]{$line[$col_chrA]}) {
-                                		if ($cnvlocs[$z][0]{$chrom1} <= $position2 && $position2 <= $cnvlocs[$z][1]{$chrom1}) {
-		                                        print "skipping CNV $line[0] $line[1]\n";
-							next EXIT_ANNO_FILTER;
-	                		        }
-		                	}
-                		}
-			}
-		}
-		#define gene names/distances
-		my $dist2 = $line[($cols-1)]; my $dist1 = $line[($cols-4)];
-		$gene1name[0] =~ s/gene_name:// ; $gene1name[0] =~ s/"//g ;  
-		$gene2name[0] =~ s/gene_name:// ; $gene2name[0] =~ s/"//g ;
-		$gene1name[0] =~ s/gene_id:// ; $gene1name[0] =~ s/"//g ;  
-		$gene2name[0] =~ s/gene_id:// ; $gene2name[0] =~ s/"//g ;
-		# check that the partners aren't family members:
-		my @intersection;
-		no warnings 'uninitialized'; 
-		my @gene1fams = split (/,/, $famhash{$gene1name[0]}); my @gene2fams = split (/,/, $famhash{$gene2name[0]});
-		my %count = ();
-	        foreach my $element (@gene1fams, @gene2fams) { $count{$element}++ }
-		        foreach my $element (keys %count) {
-       			if ($count{$element} > 1) {
-				print "skipping known family members $gene1name[0] and $gene2name[0] in family $element with $count{$element} count\n"; next EXIT_ANNO_FILTER;
-			}
-		}
-		#use a hash to eliminate known pseudogene 'fusions' 
-		no warnings 'uninitialized';
-                if (($trouble_spots{$gene1name[0]} =~ m/$gene2name[0]/ )|| ($trouble_spots{$gene2name[0]} =~ m/$gene1name[0]/)) { print "skipping known false positive pair $gene1name[0] and $gene2name[0]\n" ; next; }
-		#pull out consensus sequence and alignment score
-		#calculate fusion score
-		my ($refseq, $consSeq, $alignScore) = &extractSequence($line[0], $line[1]);
-		my $score = $line[2];
-		$score = $score*($Configs{repeatpenalty}**$line[($indices[0]-2)]) ;#penalize repeats : $line[($indices[0]-2)] is the # of repeats in this fusion
-		#we want to penalize fusions with overhangs less than avgAStarget.  
-		my $OverhangScoreMod;
-		my $ASdifference = $alignScore - $minAS; 
-		if ( $alignScore - $avgAStarget > 0) { #ie if our overhang is above where we expect it.
-			$OverhangScoreMod = 1 ; 
-		}
-		else { # if our alignment score is above the min, below expected average
+
+ EXIT_ANNO_FILTER: while (my $x = <ANNOTEMP>) {
+     chomp $x; 
+     my @line = split(/\s+/, $x);
+     my $cols = scalar(@line);
+     my @geneannot = grep(/gene_id/, @line);
+     #indices stores the positions of gene_id in .annotated.  # repeats is 1 less (than indices[0], #alignments score is 3 less.  For perl indexes, these become -2 and -4.
+     my @indices=grep{ $line[$_] =~ /gene_id/ } 0..$#line ; 
+     if (@geneannot) {
+         my @anno1=split(/;/, $geneannot[0]);
+         my @anno2=split(/;/, $geneannot[1]);
+         my @gene1name=grep(/gene_name/, @anno1);
+         if (@gene1name) { } #see if we found a gene_name field, if not use gene_id
+         else { 
+             if ($messageCounter < 1 ) {
+                 print "gene_name field not found, will use gene_id\n" ;
+                 $messageCounter++; 
+             }
+             @gene1name=grep(/gene_id/, @anno1);
+             #print "$gene1name[0]\n";
+         }
+         my @gene2name=grep(/gene_name/, @anno2);
+         if (@gene2name) { }
+         else {
+             if ($messageCounter < 1	) {
+                 print "gene_name field not found, will use gene_id\n";
+                 $messageCounter++; 
+             }
+             @gene2name=grep(/gene_id/, @anno2);
+             #print "$gene2name[0]\n"; 
+         }	
+         #skip same-gene 'fusions'
+         if ($gene1name[0] eq $gene2name[0]) {
+             print "Skipping same-gene 'fusion' within $gene1name[0]\n"; 
+             next;  
+         }
+         #skip CNVs and circular-looking
+         my ($chrom1, $position1, $strand1 ) = split ':', $line[0] ; $chrom1 =~ s/:.*//;  
+         my ($chrom2, $position2, $strand2 ) = split ':', $line[1] ; $chrom2 =~ s/:.*//;  
+         if ($chrom1 eq $chrom2) { #same chrom
+             if ($strand1 eq $strand2) { #same strand
+                 #remove circular looking RNA.  If not, widen the fusion positions for the CNV hunt.
+                 if ($strand1 eq "-") { 
+                     if (($position2 - $position1) < $Configs{circlesize} && ($position2 - $position1) >0) { #ie a back splice
+                         print "skipping circle $line[0] $line[1]\n";
+                         next EXIT_ANNO_FILTER ;
+                     }#if not circular, adjust 
+                     my $temp = $position1 - $Configs{cnvwiggle} ; $position1 = $position2 + $Configs{cnvwiggle} ; $position2 = $temp;
+                 }
+                 else   { ## ie plus strand
+                     if (($position1 - $position2) < $Configs{circlesize} && ($position1 - $position2) > 0) {
+                         print "skipping circle $line[0] $line[1]\n";
+                         next EXIT_ANNO_FILTER ;
+                     } #if not circular, adjust 
+                     $position1 = $position1 + $Configs{cnvwiggle}; $position2 = $position2 - $Configs{cnvwiggle};
+                 }
+                 #check the positions for CNV status
+                 $chrom1 =~ s/^chr// ; ##CNVs chr values are stripped on read-in.  
+                 foreach my $z (0..$cnvindex) { 
+                     no warnings 'uninitialized' ;# if positions 1 and 2 are within the CNV. 
+                     if ($cnvlocs[$z][0]{$chrom1} <= $position1 && $position1 <= $cnvlocs[$z][1]{$line[$col_chrA]}) {
+                         if ($cnvlocs[$z][0]{$chrom1} <= $position2 && $position2 <= $cnvlocs[$z][1]{$chrom1}) {
+                             print "skipping CNV $line[0] $line[1]\n";
+                             next EXIT_ANNO_FILTER;
+                         }
+                     }
+                 }
+             }
+         }
+         #define gene names/distances
+         my $dist2 = $line[($cols-1)]; my $dist1 = $line[($cols-4)];
+         $gene1name[0] =~ s/gene_name:// ; $gene1name[0] =~ s/"//g ;  
+         $gene2name[0] =~ s/gene_name:// ; $gene2name[0] =~ s/"//g ;
+         $gene1name[0] =~ s/gene_id:// ; $gene1name[0] =~ s/"//g ;  
+         $gene2name[0] =~ s/gene_id:// ; $gene2name[0] =~ s/"//g ;
+         # check that the partners aren't family members:
+         my @intersection;
+         no warnings 'uninitialized'; 
+         my @gene1fams = split (/,/, $famhash{$gene1name[0]}); my @gene2fams = split (/,/, $famhash{$gene2name[0]});
+         my %count = ();
+         foreach my $element (@gene1fams, @gene2fams) { $count{$element}++ }
+         foreach my $element (keys %count) {
+             if ($count{$element} > 1) {
+                 print "skipping known family members $gene1name[0] and $gene2name[0] in family $element with $count{$element} count\n"; next EXIT_ANNO_FILTER;
+             }
+         }
+         #use a hash to eliminate known pseudogene 'fusions' 
+         no warnings 'uninitialized';
+         if (($trouble_spots{$gene1name[0]} =~ m/$gene2name[0]/ )|| ($trouble_spots{$gene2name[0]} =~ m/$gene1name[0]/)) { print "skipping known false positive pair $gene1name[0] and $gene2name[0]\n" ; next; }
+         #pull out consensus sequence and alignment score
+         #calculate fusion score
+         my ($refseq, $consSeq, $alignScore) = &extractSequence($line[0], $line[1]);
+         my $score = $line[2];
+         $score = $score*($Configs{repeatpenalty}**$line[($indices[0]-2)]) ;#penalize repeats : $line[($indices[0]-2)] is the # of repeats in this fusion
+         #we want to penalize fusions with overhangs less than avgAStarget.  
+         my $OverhangScoreMod;
+         my $ASdifference = $alignScore - $minAS; 
+         if ( $alignScore - $avgAStarget > 0) { #ie if our overhang is above where we expect it.
+             $OverhangScoreMod = 1 ; 
+         }
+         else { # if our alignment score is above the min, below expected average
 			my $ASrange = $avgAStarget - $minAS ;
 			$OverhangScoreMod = $ASdifference/$ASrange ; 
 		}
@@ -290,11 +303,16 @@ EXIT_ANNO_FILTER: while (my $x = <ANNOTEMP>) {
 		if ($Configs{simscore} eq 'TRUE') {
 			&SIMSCORE($line[0], $line[1]);
 		}
-	print SUMM "\n";
-	print ANNOTATION "\n"; 
-	}
+         print SUMM "\n";
+         print ANNOTATION "\n"; 
+     }
 }
 print "For a circos plot, run: Rscript ${script_dir}circos.plot.R $Configs{refbed} $outsumm myCircosPlotName \n"; 
+
+print "annotate-fusions.pl: done.\n";
+
+exit(0);
+
 
 
 ### BEGIN SUBROUTINES ###
@@ -357,7 +375,11 @@ sub extractSequence {
 	#print "$cmdA\n$cmdB\n";
 ##Collect Reference fasta with samtools
 	my @fastaA=`$cmdA`;
-	my @fastaB=`$cmdB`;
+    if ($?) { confess "Error, cmd: $cmdA died with $?"; }
+    
+    my @fastaB=`$cmdB`;
+    if ($?) { confess "Error, cmd: $cmdB died with $?"; }
+    
 	my $sequenceA;
 	my $sequenceB;
   ## FASTA-->string of sequence
@@ -421,7 +443,7 @@ sub SIMSCORE { #input is format chr:pos:+ chr:pos:-
 #check fusion site sequence similarity
 	my $tempID = int(rand(10000000));
 	my $seqfasta = $tempID . ".fa";
-	open (FASTA, ">$seqfasta") or die $!; 
+	open (FASTA, ">$seqfasta") or confess "Error, cannot open $seqfasta, $!"; 
 	#This time I want the 10bp on either side of the fusion site from both sites.
         ##if +
         if ($strandA eq "+") {
@@ -448,17 +470,20 @@ sub SIMSCORE { #input is format chr:pos:+ chr:pos:-
         my $cmdB = "samtools faidx $Configs{refFasta} '$chrB:$seqBpos1-$seqBpos2'";
 	#run the commands
 	#print "$cmdA\n$cmdB\n";
-	my @fastaA=`$cmdA`;
+        my @fastaA=`$cmdA`;
+        if ($?) { confess "Error, $cmdA died with ret $?"; }
+        
         my @fastaB=`$cmdB`;
-	#if neg strand, reverse comp.  otherwise print to fa file. 
-	my $sequenceA = "";
-	my $sequenceB = "";
-	while (@fastaA) {
+        #if neg strand, reverse comp.  otherwise print to fa file
+        if ($?) { conofess "Error, $cmdB died with ret $?"; }
+        my $sequenceA = "";
+        my $sequenceB = "";
+        while (@fastaA) {
         	my $x = shift(@fastaA);
-                chomp $x ;
-                if ($x =~ m/^[actgACTG]/) {
-                        $sequenceA .=$x ;
-                }
+            chomp $x ;
+            if ($x =~ m/^[actgACTG]/) {
+                $sequenceA .=$x ;
+            }
         }
         while (@fastaB) {
                 my $x = shift(@fastaB);
@@ -478,12 +503,15 @@ sub SIMSCORE { #input is format chr:pos:+ chr:pos:-
 		print FASTA ">seq2\n@reverseB\n";
         }
         else { print FASTA ">seq2\n$sequenceB\n"; }
-	my $sw_command = "$smithwaterman $sw_matrix $seqfasta";
-	my $alignscore = `$sw_command`;
-	print ANNOTATION "\tSIMSCORE:$alignscore";
-	my $rm_fasta_cmd = "rm $seqfasta";
-	system($rm_fasta_cmd);
+        my $sw_command = "$smithwaterman $sw_matrix $seqfasta";
+        my $alignscore = `$sw_command`;
+        if ($?) { confess "Error, cmd $sw_command died with ret $?"; }
+        print ANNOTATION "\tSIMSCORE:$alignscore";
+        my $rm_fasta_cmd = "rm $seqfasta";
+        process_cmd($rm_fasta_cmd);
 }
+
+
 sub reversestrand {
 	if ($_[0] eq "+"){
 		return "-";
