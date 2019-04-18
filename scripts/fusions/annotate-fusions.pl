@@ -5,7 +5,7 @@ use Cwd 'abs_path';
 use Getopt::Long;
 use File::Basename;
 use FindBin;
-use lib "$FindBin::Bin/../../perllib");
+use lib ("$FindBin::Bin/../../perllib");
 use Process_cmd;
 use Carp;
 
@@ -28,11 +28,12 @@ while (<CONFIG>) {
     $Configs{$var} = $value;
 }
 
-if (get_log_level() > 0) {
+if (get_debug_level() > 0) {
     print "annotate-fusions.pl config settings:\n";
     use Data::Dumper;
     print Dumper(\%Configs);
 }
+
 
 my $numbcolumns=14; #need this one in case you junciton.out file/input changes.  this should be a non-existant final column (ie Chimeric.junciton.out has 0-13 columns)
 #should fix this to be more robust...
@@ -70,7 +71,7 @@ my $troublemakers = $data_dir .  $Configs{falsepositives} ;
 my $familyfile = $data_dir . $Configs{familyfile} ;
 my $cnvfile = $data_dir . $Configs{cnvs} ;
 
-if (get_log_level() > 0) {
+if (get_debug_level() > 0) {
     print "annotate-fusions.pl, files used:\n"
         . "troublemakers: $troublemakers\n"
         . "familyfile: $familyfile\n"
@@ -475,7 +476,7 @@ sub SIMSCORE { #input is format chr:pos:+ chr:pos:-
         
         my @fastaB=`$cmdB`;
         #if neg strand, reverse comp.  otherwise print to fa file
-        if ($?) { conofess "Error, $cmdB died with ret $?"; }
+        if ($?) { confess "Error, $cmdB died with ret $?"; }
         my $sequenceA = "";
         my $sequenceB = "";
         while (@fastaA) {

@@ -38,7 +38,7 @@ while (<CONFIG>) {
     $Configs{$var} = $value;
 }
 
-if (get_log_level() > 0) {
+if (get_debug_level() > 0) {
     use Data::Dumper;
     print "fusions-from-star.pl, config setting:\n";
     print Dumper(\%Configs);
@@ -81,7 +81,7 @@ my $familyfile = $data_dir . "/" . $Configs{familyfile} ;
 my $cnvfile = $data_dir . "/" . $Configs{cnvs} ; 
 
 
-if (get_log_level() > 0) {
+if (get_debug_level() > 0) {
     print "fusions-from-star.pl settings:\n"
         . "script_dir = $script_dir\n"
         . "consensusloc = $consensusloc\n"

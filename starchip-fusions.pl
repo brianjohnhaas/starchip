@@ -51,7 +51,7 @@ if (get_debug_level() > 0) {
         . "outsumm = $outsumm\n"
         . "outsummtemp = $outsummtemp\n"
         . "outannotemp = $outannotemp\n"
-        . "outanno = $outannot\n\n";
+        . "outanno = $outanno\n\n";
 }
 
     
@@ -62,9 +62,7 @@ print "your final outputs will be in $outsumm and $outsumm.annotated\n";
 my $fusions_from_star_cmd = $script_dir . "fusions-from-star.pl" . " $ARGV[0] " . $ARGV[1] . " " . $ARGV[2] ; 
 print "$fusions_from_star_cmd\n";
 process_cmd("$fusions_from_star_cmd");
-if ($ret) {
-    die "Error, cmd: $fusions_from_star_cmd died with ret $ret";
-}
+
 #RUN ANNOTATE-FUSIONS
 #check that there are more than just the header line
 open (OUTSUMTEMP, "<$outsummtemp") or die "$! cannot open $outsummtemp\n"; 
